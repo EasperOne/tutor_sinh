@@ -19,6 +19,9 @@ from openpyxl.styles import Font, PatternFill
 from rich.console import Console
 from rich.table import Table
 
+import torch
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
 console = Console()
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -51,7 +54,7 @@ def convert_pdf_to_markdown(pdf_path: Path, exam_dir: Path) -> Path:
         #     "recognition_batch_size": 4,
         #     "detection_batch_size": 2,   # text detection step, also early in the pipeline
         #     })
-        models = create_model_dict()
+        models = create_model_dict(device=device)
         converter = PdfConverter(artifact_dict=models)
         rendered = converter(str(pdf_path))
         text, _, _ = text_from_rendered(rendered)

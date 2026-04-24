@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tutor-sinh"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=0.40",
+    "marker-pdf",
+    "openpyxl",
+    "gspread>=6.0",
+    "google-auth",
+    "pymupdf",
+    "pypdf",
+    "pytesseract",
+    "Pillow",
+    "pdfplumber",
+    "reportlab",
+    "python-dotenv",
+    "pyyaml",
+    "typer>=0.12",
+    "rich",
+]
+
+[project.scripts]
+tutor = "tutor:app"
+
+[tool.setuptools]
+py-modules = ["tutor"]
+packages = ["scripts"]

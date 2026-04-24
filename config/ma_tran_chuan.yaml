@@ -1,0 +1,26 @@
+tong_cau_y: 40
+tong_diem: 10
+
+phan:
+  P1: { so_cau: 18, diem: 4.5, loai: "Trắc nghiệm 4 lựa chọn", muc_do: {B: 12, H: 5, VD: 1} }
+  P2: { so_y: 16,  diem: 4.0, loai: "Đúng/Sai (1 câu = 4 ý)",  muc_do: {B: 2,  H: 6, VD: 8} }
+  P3: { so_cau: 6,  diem: 1.5, loai: "Trả lời ngắn (đáp số)",   muc_do: {B: 2,  H: 3, VD: 1} }
+
+chuong:
+  DT_PT: { ten: "Di truyền cấp phân tử",                            lop: "10",    tong_chuan: 1  }
+  DT_TB: { ten: "Di truyền cấp tế bào",                             lop: "10",    tong_chuan: 1  }
+  CH_TV: { ten: "Chuyển hoá vật chất và năng lượng ở thực vật",     lop: "11",    tong_chuan: 2  }
+  CH_DV: { ten: "Chuyển hoá vật chất và năng lượng ở động vật",     lop: "11",    tong_chuan: 4  }
+  DT_BD: { ten: "Di truyền và biến dị cấp phân tử và cấp tế bào",  lop: "12+10", tong_chuan: 6  }
+  QL_DT: { ten: "Quy luật di truyền",                                lop: "12",    tong_chuan: 5  }
+  DT_QT: { ten: "Di truyền quần thể",                                lop: "12",    tong_chuan: 1  }
+  DT_HP: { ten: "Di truyền học người và liệu pháp gene",            lop: "12",    tong_chuan: 3  }
+  UD_DT: { ten: "Ứng dụng di truyền học",                           lop: "12",    tong_chuan: 1  }
+  TH:    { ten: "Tiến hoá",                                          lop: "12",    tong_chuan: 6  }
+  ST_MT: { ten: "Sinh thái học và môi trường",                       lop: "12",    tong_chuan: 10 }
+
+screen:
+  list_a_match_min: 0.85       # minimum match_score to enter Sonnet evaluation
+  list_b_vd_min: 12            # minimum VD count to appear in List B (off-matrix but hard)
+  tolerance_per_section: 1     # acceptable deviation per section count
+  tolerance_muc_do_total: 2    # acceptable deviation per difficulty level across whole exam

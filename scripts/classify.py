@@ -19,8 +19,10 @@ from openpyxl.styles import Font, PatternFill
 from rich.console import Console
 from rich.table import Table
 
+import os 
 import torch
 device = "cuda" if torch.cuda.is_available() else "cpu"
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 console = Console()
 
@@ -46,16 +48,16 @@ def convert_pdf_to_markdown(pdf_path: Path, exam_dir: Path) -> Path:
         from marker.converters.pdf import PdfConverter
         from marker.models import create_model_dict
         from marker.output import text_from_rendered
-        # from marker.config.parser import ConfigParser
+        from marker.config.parser import ConfigParser
 
         console.print(f"  Converting PDF with marker...")
-        # config = ConfigParser({
-        #     "layout_batch_size": 1,
-        #     "recognition_batch_size": 4,
-        #     "detection_batch_size": 2,   # text detection step, also early in the pipeline
-        #     })
+        config = ConfigParser({"batch_multiplier":1
+            # "layout_batch_size": 1,
+            # "recognition_batch_size": 4,
+            # "detection_batch_size": 2,   # text detection step, also early in the pipeline
+            })
         models = create_model_dict(device=device)
-        converter = PdfConverter(artifact_dict=models)
+        converter = PdfConverter(artifact_dict=models, config=config)
         rendered = converter(str(pdf_path))
         text, _, _ = text_from_rendered(rendered)
         md_path.write_text(text, encoding="utf-8")

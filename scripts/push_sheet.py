@@ -29,6 +29,11 @@ HEATMAP_CHAPTERS = [
     "QL_DT", "DT_QT", "DT_HP", "UD_DT", "TH", "ST_MT",
 ]
 
+PALETTES = {
+    "red": ("#f5e8e9", "#D32F2F"),
+    "green": ("#E8F5E9", "#1B5E20"),
+    "purple": ("#e8e9f5", "#6A1B9A"),
+}
 
 def load_config() -> dict:
     with open(CONFIG_PATH, encoding="utf-8") as f:
@@ -146,55 +151,118 @@ def setup_theo_doi_sheet(ws):
 
 
 def setup_heatmap_sheet(heatmap_ws, theo_doi_ws_title: str = "Theo_doi"):
-    existing = heatmap_ws.get_all_values()
-    if existing and len(existing) > 1:
-        return
-
-    sheet_id = heatmap_ws._properties["sheetId"]
+    heatmap_ws.clear() # Clear to refresh formulas and remove old text
     theo_doi_ref = f"'{theo_doi_ws_title}'"
-
-    col_headers = ["Chương", "P1", "P2", "P3", "Tổng"]
-    heatmap_ws.update("A1:E1", [col_headers])
-
+    
+    # Use semicolon separator for Vietnam locale Google Sheets
+    sep = ";" 
+    
+    headers = ["Chương", "P1", "P2", "P3", "Tổng"]
     chapter_rows = []
+    
+    # Dynamically build rows for each chapter with semicolons
     for i, ch in enumerate(HEATMAP_CHAPTERS, 2):
-        p1 = f'=COUNTIFS({theo_doi_ref}!C:C,"P1",{theo_doi_ref}!F:F,"{ch}")'
-        p2 = f'=COUNTIFS({theo_doi_ref}!C:C,"P2",{theo_doi_ref}!F:F,"{ch}")'
-        p3 = f'=COUNTIFS({theo_doi_ref}!C:C,"P3",{theo_doi_ref}!F:F,"{ch}")'
-        total = f"=SUM(B{i}:D{i})"
-        chapter_rows.append([ch, p1, p2, p3, total])
-
-    tong_row = [
+        chapter_rows.append([
+            ch,
+            f'=COUNTIFS({theo_doi_ref}!$C:$C{sep} "P1"{sep} {theo_doi_ref}!$F:$F{sep} "{ch}")',
+            f'=COUNTIFS({theo_doi_ref}!$C:$C{sep} "P2"{sep} {theo_doi_ref}!$F:$F{sep} "{ch}")',
+            f'=COUNTIFS({theo_doi_ref}!$C:$C{sep} "P3"{sep} {theo_doi_ref}!$F:$F{sep} "{ch}")',
+            f'=SUM(B{i}:D{i})'
+        ])
+    
+    # Add Total row
+    last_row = len(HEATMAP_CHAPTERS) + 1
+    chapter_rows.append([
         "Tổng",
-        "=SUM(B2:B12)",
-        "=SUM(C2:C12)",
-        "=SUM(D2:D12)",
-        "=SUM(E2:E12)",
-    ]
-    chapter_rows.append(tong_row)
+        f"=SUM(B2:B{last_row})",
+        f"=SUM(C2:C{last_row})",
+        f"=SUM(D2:D{last_row})",
+        f"=SUM(E2:E{last_row})"
+    ])
 
-    for i, row in enumerate(chapter_rows, 2):
-        heatmap_ws.update(f"A{i}:E{i}", [row])
-
+    # Batch update the text and formulas
+    heatmap_ws.update("A1", [headers] + chapter_rows, value_input_option="USER_ENTERED")
+    
+    # --- CONDITIONAL FORMATTING & STYLING ---
+    sheet_id = heatmap_ws._properties["sheetId"]
     spreadsheet = heatmap_ws.spreadsheet
-    cf_request = {
-        "addConditionalFormatRule": {
-            "rule": {
-                "ranges": [{"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": 13, "startColumnIndex": 1, "endColumnIndex": 5}],
-                "gradientRule": {
-                    "minpoint": {"color": {"red": 1, "green": 1, "blue": 1}, "type": "MIN"},
-                    "midpoint": {"color": {"red": 1, "green": 1, "blue": 0}, "type": "PERCENTILE", "value": "50"},
-                    "maxpoint": {"color": {"red": 1, "green": 0, "blue": 0}, "type": "MAX"},
-                },
-            },
-            "index": 0,
-        }
-    }
-    try:
-        spreadsheet.batch_update({"requests": [cf_request]})
-    except Exception:
-        pass
+    num_chapters = len(HEATMAP_CHAPTERS)
 
+    def _hex_to_rgb01(hex_color: str):
+        hex_color = hex_color.lstrip("#")
+        return {
+            "red": int(hex_color[0:2], 16) / 255,
+            "green": int(hex_color[2:4], 16) / 255,
+            "blue": int(hex_color[4:6], 16) / 255,
+        }
+    
+    def _mono_scale(hex_base, strength):
+    
+        base = _hex_to_rgb01(hex_base)
+        return {
+            "red": 1 - (1 - base["red"]) * strength,
+            "green": 1 - (1 - base["green"]) * strength,
+            "blue": 1 - (1 - base["blue"]) * strength,
+        }
+
+    def _gradient(start_col, end_col, start_row, end_row, palette):
+        min_hex, max_hex = PALETTES[palette]
+
+        return {
+            "addConditionalFormatRule": {
+                "rule": {
+                    "ranges": [{
+                        "sheetId": sheet_id,
+                        "startRowIndex": start_row,
+                        "endRowIndex": end_row,
+                        "startColumnIndex": start_col,
+                        "endColumnIndex": end_col
+                    }],
+                    "gradientRule": {
+                        "minpoint": {"color": _hex_to_rgb01(min_hex), "type": "MIN"},
+                        "maxpoint": {"color": _hex_to_rgb01(max_hex), "type": "MAX"},
+                    },
+                },
+                "index": 0,
+            }
+        }
+    # Combine all formatting requests
+    requests = [
+        {"deleteConditionalFormatRule": {"index": 0, "sheetId": sheet_id}},
+        {"deleteConditionalFormatRule": {"index": 0, "sheetId": sheet_id}},
+        {"deleteConditionalFormatRule": {"index": 0, "sheetId": sheet_id}},
+
+        # Inner grid → red
+        _gradient(1, 4, 1, num_chapters + 1, "red"),
+
+        # Totals → green
+        _gradient(4, 5, 1, num_chapters + 1, "green"),
+
+        # Bottom totals → purple
+        _gradient(1, 5, num_chapters + 1, num_chapters + 2, "purple"),
+
+        # 3. Bold the Header Row
+        {"repeatCell": {
+            "range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": 1},
+            "cell": {"userEnteredFormat": {"textFormat": {"bold": True}}},
+            "fields": "userEnteredFormat.textFormat.bold"
+        }},
+        
+        # 4. Bold the "Tổng" Row at the bottom
+        {"repeatCell": {
+            "range": {"sheetId": sheet_id, "startRowIndex": num_chapters + 1, "endRowIndex": num_chapters + 2},
+            "cell": {"userEnteredFormat": {"textFormat": {"bold": True}}},
+            "fields": "userEnteredFormat.textFormat.bold"
+        }}
+    ]
+
+    try:
+        # Ignore errors if deleting rules fails (e.g., if there are no rules to delete on the first run)
+        spreadsheet.batch_update({"requests": requests})
+    except Exception:
+        # If deletion fails, just send the add/format requests
+        add_requests = [r for r in requests if "deleteConditionalFormatRule" not in r]
+        spreadsheet.batch_update({"requests": add_requests})   
 
 def resolve_session_path(session_arg: str) -> Path:
     p = Path(session_arg)
@@ -211,6 +279,7 @@ def resolve_session_path(session_arg: str) -> Path:
 def run_push(session_arg: str):
     load_dotenv(ROOT / ".env")
     config = load_config()
+    # Map chapter IDs to their full names
     chapter_names = {k: v["ten"] for k, v in config["chuong"].items()}
 
     session_dir = resolve_session_path(session_arg)
@@ -220,86 +289,79 @@ def run_push(session_arg: str):
         raise FileNotFoundError(f"session.yaml not found in {session_dir}")
 
     with open(session_yaml_path, encoding="utf-8") as f:
-        session = yaml.safe_load(f)
+        sessions_list = yaml.safe_load(f)
 
-    session_date = str(session["date"])
-    exam_id = session["exam_id"]
-    wrong_questions = session.get("wrong_questions", [])
+    if not isinstance(sessions_list, list):
+        sessions_list = [sessions_list]
 
-    classify_json_path = PROCESSED_DIR / exam_id / "classify.json"
-    if not classify_json_path.exists():
-        raise FileNotFoundError(
-            f"classify.json not found for {exam_id}. Run: tutor classify question_bank/raw/{exam_id}.pdf"
-        )
+    all_rows_to_push = []
 
-    with open(classify_json_path, encoding="utf-8") as f:
-        classify_data = json.load(f)
+    # --- PROCESS EACH EXAM INDIVIDUALLY ---
+    for session_data in sessions_list:
+        session_date = str(session_data["date"])
+        exam_id = session_data["exam_id"]
+        wrong_questions = session_data.get("wrong_questions", [])
 
-    classify_map: dict[str, dict] = {}
-    for c in classify_data.get("classifications", []):
-        key_parts = [c["phan"], str(c["stt"])]
-        if c.get("y"):
-            key_parts.append(c["y"])
-        classify_map[":".join(key_parts)] = c
+        # Load metadata for THIS specific exam
+        classify_json_path = PROCESSED_DIR / exam_id / "classify.json"
+        if not classify_json_path.exists():
+            console.print(f"[yellow]⚠ Bỏ qua {exam_id}: Không tìm thấy classify.json[/yellow]")
+            continue
 
-    rows = []
-    for wq in wrong_questions:
-        phan = wq["phan"]
-        stt = str(wq["stt"])
-        y = wq.get("y", "")
+        with open(classify_json_path, encoding="utf-8") as f:
+            classify_data = json.load(f)
 
-        key = f"{phan}:{stt}:{y}" if y else f"{phan}:{stt}"
-        cls = classify_map.get(key, {})
+        # Create lookup map for this exam
+        classify_map = {}
+        for c in classify_data.get("classifications", []):
+            key = f"{c['phan']}:{c['stt']}"
+            if c.get("y"): key += f":{c['y']}"
+            classify_map[key] = c
 
-        chuong = cls.get("chuong", "")
-        muc_do = cls.get("muc_do", "")
-        chuong_ten = chapter_names.get(chuong, "")
+        # Build the full 10-column rows
+        for wq in wrong_questions:
+            phan = wq["phan"]
+            stt = str(wq["stt"])
+            y = wq.get("y", "")
 
-        rows.append([
-            session_date,
-            exam_id,
-            phan,
-            int(stt),
-            y,
-            chuong,
-            chuong_ten,
-            muc_do,
-            False,
-            "not_yet",
-        ])
+            key = f"{phan}:{stt}:{y}" if y else f"{phan}:{stt}"
+            cls = classify_map.get(key, {})
 
+            chuong = cls.get("chuong", "")
+            muc_do = cls.get("muc_do", "")
+            chuong_ten = chapter_names.get(chuong, "Unknown")
+
+            all_rows_to_push.append([
+                session_date,    # A: session_date
+                exam_id,         # B: exam_id
+                phan,            # C: phan
+                int(stt),        # D: stt
+                y,               # E: y
+                chuong,          # F: chuong (Crucial for Heatmap)
+                chuong_ten,      # G: chuong_ten
+                muc_do,          # H: muc_do
+                False,           # I: sai_ngu
+                "not_yet",       # J: on_tap_nhac_lai
+            ])
+
+    # --- GOOGLE SHEETS SYNC ---
     sheet_id = os.environ.get("GOOGLE_SHEET_ID")
-    if not sheet_id:
-        raise RuntimeError("GOOGLE_SHEET_ID not set in .env")
-
-    try:
-        gc = get_gspread_client()
-    except RuntimeError as e:
-        console.print(f"[red]Google Sheets setup required:[/red]\n{e}")
-        return
-
+    gc = get_gspread_client()
     spreadsheet = gc.open_by_key(sheet_id)
 
+    # Get/Create sheets
     worksheet_titles = [ws.title for ws in spreadsheet.worksheets()]
-
-    if "Theo_doi" not in worksheet_titles:
-        theo_doi_ws = spreadsheet.add_worksheet(title="Theo_doi", rows=1000, cols=10)
-    else:
-        theo_doi_ws = spreadsheet.worksheet("Theo_doi")
-
-    if "Heatmap" not in worksheet_titles:
-        heatmap_ws = spreadsheet.add_worksheet(title="Heatmap", rows=20, cols=5)
-    else:
-        heatmap_ws = spreadsheet.worksheet("Heatmap")
+    theo_doi_ws = spreadsheet.worksheet("Theo_doi") if "Theo_doi" in worksheet_titles else spreadsheet.add_worksheet("Theo_doi", 1000, 10)
+    heatmap_ws = spreadsheet.worksheet("Heatmap") if "Heatmap" in worksheet_titles else spreadsheet.add_worksheet("Heatmap", 20, 5)
 
     setup_theo_doi_sheet(theo_doi_ws)
-    setup_heatmap_sheet(heatmap_ws)
+    # Re-run heatmap setup to ensure formulas are fresh
+    setup_heatmap_sheet(heatmap_ws, "Theo_doi")
 
-    theo_doi_ws.append_rows(rows, value_input_option="USER_ENTERED")
-
-    console.print(
-        f"[green]✓ Đã thêm {len(rows)} câu hỏi sai vào Google Sheet "
-        f"(session: {session_date}, đề: {exam_id})[/green]"
-    )
-
-
+    if all_rows_to_push:
+        theo_doi_ws.append_rows(all_rows_to_push, value_input_option="USER_ENTERED")
+        
+        # Sort Column A (Date) Descending (Latest on top)
+        theo_doi_ws.sort((1, 'des'))
+        
+        console.print(f"[green]✓ Đã đẩy {len(all_rows_to_push)} câu hỏi vào Google Sheet và sắp xếp theo ngày.[/green]")

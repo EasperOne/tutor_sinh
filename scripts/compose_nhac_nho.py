@@ -20,6 +20,8 @@ from reportlab.platypus import (
     Paragraph,
     SimpleDocTemplate,
     Spacer,
+    Table,
+    TableStyle,
 )
 from rich.console import Console
 
@@ -35,6 +37,15 @@ CHAPTER_ORDER = [
     "QL_DT", "DT_QT", "DT_HP", "UD_DT", "TH", "ST_MT",
 ]
 
+PAGE_WIDTH, PAGE_HEIGHT = A4
+LEFT_MARGIN = 2.5 * cm
+RIGHT_MARGIN = 2.0 * cm
+TOP_MARGIN = 2.0 * cm
+BOTTOM_MARGIN = 2.0 * cm
+USABLE_WIDTH = PAGE_WIDTH - LEFT_MARGIN - RIGHT_MARGIN
+
+_font_name: str | None = None
+
 
 def load_config() -> dict:
     with open(CONFIG_PATH, encoding="utf-8") as f:
@@ -42,28 +53,41 @@ def load_config() -> dict:
 
 
 def _register_unicode_font() -> str:
-    """Try to register a Vietnamese-capable font; fall back to Helvetica."""
+    global _font_name
+    if _font_name is not None:
+        return _font_name
+
     candidates = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-        "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-        "/usr/share/fonts/opentype/noto/NotoSans-Regular.ttf",
-        "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+        ROOT / "config" / "fonts" / "DejaVuSans.ttf",
+        Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+        Path("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"),
+        Path("/usr/share/fonts/truetype/freefont/FreeSans.ttf"),
+        Path("/usr/share/fonts/opentype/noto/NotoSans-Regular.ttf"),
+        Path("/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf"),
     ]
     for path in candidates:
-        if Path(path).exists():
+        if path.exists():
             try:
-                pdfmetrics.registerFont(TTFont("UniFont", path))
-                return "UniFont"
+                pdfmetrics.registerFont(TTFont("UniFont", str(path)))
+                _font_name = "UniFont"
+                return _font_name
             except Exception:
                 continue
-    return "Helvetica"
+
+    console.print(
+        "[yellow]Warning: No Vietnamese font found. PDF may not render diacritics correctly.\n"
+        "Download DejaVuSans.ttf and save to config/fonts/DejaVuSans.ttf[/yellow]"
+    )
+    _font_name = "Helvetica"
+    return _font_name
 
 
 def load_exam_markdown(exam_id: str) -> str:
     md_path = PROCESSED_DIR / exam_id / "de.md"
     if not md_path.exists():
-        raise FileNotFoundError(f"de.md not found for {exam_id}. Run: tutor classify question_bank/raw/{exam_id}.pdf")
+        raise FileNotFoundError(
+            f"de.md not found for {exam_id}. Run `tutor form` and import JSON first."
+        )
     return md_path.read_text(encoding="utf-8")
 
 
@@ -76,19 +100,23 @@ def load_classify(exam_id: str) -> dict:
 
 
 def extract_p1_question(markdown: str, stt: int) -> str:
-    pattern = rf"(?:Câu|câu)\s+{stt}\s*[.:)](.+?)(?=(?:Câu|câu)\s+\d+\s*[.:)]|$)"
+    pattern = (
+        rf"(?:Câu|câu)\s+{stt}\s*[.:)]\s*"
+        rf"(.+?)"
+        rf"(?=(?:Câu|câu)\s+\d+\s*[.:)]|(?:Phần|PHẦN)\s+II|$)"
+    )
     match = re.search(pattern, markdown, re.DOTALL | re.IGNORECASE)
     if match:
         return match.group(1).strip()
-    pattern2 = rf"\b{stt}\s*[.)]\s*(.+?)(?=\b\d+\s*[.)]\s*[A-ZĐÔĂÂÊIUW]|\Z)"
-    match2 = re.search(pattern2, markdown, re.DOTALL)
-    if match2:
-        return match2.group(1).strip()
     return f"[Câu {stt} — không tìm thấy trong de.md]"
 
 
 def extract_p2_question(markdown: str, stt: int, y_list: list[str] | None) -> str:
-    pattern = rf"(?:Câu|câu)\s+{stt}\s*[.:)](.+?)(?=(?:Câu|câu)\s+\d+\s*[.:)]|(?:Phần|PHẦN)\s+III|$)"
+    pattern = (
+        rf"(?:Câu|câu)\s+{stt}\s*[.:)]\s*"
+        rf"(.+?)"
+        rf"(?=(?:Câu|câu)\s+\d+\s*[.:)]|(?:Phần|PHẦN)\s+III|$)"
+    )
     match = re.search(pattern, markdown, re.DOTALL | re.IGNORECASE)
     if not match:
         return f"[Câu {stt} P2 — không tìm thấy trong de.md]"
@@ -99,9 +127,9 @@ def extract_p2_question(markdown: str, stt: int, y_list: list[str] | None) -> st
         return full_text
 
     lines = full_text.split("\n")
-    context_lines = []
+    context_lines: list[str] = []
     y_lines: dict[str, list[str]] = {}
-    current_y = None
+    current_y: str | None = None
 
     for line in lines:
         y_match = re.match(r"^\s*([abcd])\s*[.):]\s*(.*)", line, re.IGNORECASE)
@@ -113,10 +141,9 @@ def extract_p2_question(markdown: str, stt: int, y_list: list[str] | None) -> st
         else:
             context_lines.append(line)
 
-    selected_y = [y for y in ["a", "b", "c", "d"] if y in [yy.lower() for yy in y_list]]
-
+    selected = [y for y in ["a", "b", "c", "d"] if y in [yy.lower() for yy in y_list]]
     result_lines = context_lines[:]
-    for y in selected_y:
+    for y in selected:
         result_lines.extend(y_lines.get(y, [f"  {y}) [không tìm thấy]"]))
 
     return "\n".join(result_lines).strip()
@@ -151,15 +178,29 @@ def get_metadata(exam_id: str, phan: str, stt: int, y_list: list[str] | None) ->
     return {"chuong": "UNKNOWN", "muc_do": "?"}
 
 
-def build_source_label(exam_id: str, phan: str, stt: int, y_list: list[str] | None) -> str:
+def build_source_label(exam_id: str, phan: str, stt: int, y_list: list[str] | None, muc_do: str = "") -> str:
     if phan == "P2" and y_list:
         y_str = ",".join(sorted(y_list))
-        return f"[{exam_id} · {phan}c{stt}-{y_str}]"
-    return f"[{exam_id} · {phan}c{stt}]"
+        loc = f"{phan}·{stt}-{y_str}"
+    else:
+        loc = f"{phan}·{stt}"
+    if muc_do:
+        return f"[{exam_id} · {loc} · {muc_do}]"
+    return f"[{exam_id} · {loc}]"
 
 
 def sanitize_filename(title: str) -> str:
     return re.sub(r"[^\w\-_]", "_", title).strip("_")
+
+
+def _make_page_footer(font_name: str):
+    def _draw(canvas, doc):
+        canvas.saveState()
+        canvas.setFont(font_name, 9)
+        canvas.setFillColor(colors.grey)
+        canvas.drawCentredString(PAGE_WIDTH / 2, 1.2 * cm, f"Trang {doc.page}")
+        canvas.restoreState()
+    return _draw
 
 
 def run_compose(compose_json_path: Path, output_path: Path | None = None):
@@ -187,7 +228,8 @@ def run_compose(compose_json_path: Path, output_path: Path | None = None):
 
         meta = get_metadata(exam_id, phan, stt, y_list)
         chuong = meta.get("chuong", "UNKNOWN")
-        source_label = build_source_label(exam_id, phan, stt, y_list)
+        muc_do = meta.get("muc_do", "")
+        source_label = build_source_label(exam_id, phan, stt, y_list, muc_do)
 
         enriched.append({
             "chuong": chuong,
@@ -201,8 +243,7 @@ def run_compose(compose_json_path: Path, output_path: Path | None = None):
 
     by_chapter: dict[str, list[dict]] = {}
     for e in enriched:
-        ch = e["chuong"]
-        by_chapter.setdefault(ch, []).append(e)
+        by_chapter.setdefault(e["chuong"], []).append(e)
 
     ordered_chapters = [ch for ch in CHAPTER_ORDER if ch in by_chapter]
     for ch in by_chapter:
@@ -234,14 +275,12 @@ def run_compose(compose_json_path: Path, output_path: Path | None = None):
         textColor=colors.grey,
         spaceAfter=16,
     )
-    chapter_style = ParagraphStyle(
-        "ChapterStyle",
-        parent=styles["Heading2"],
+    chapter_header_style = ParagraphStyle(
+        "ChapterHeader",
         fontName=font_name,
-        fontSize=13,
-        spaceBefore=14,
-        spaceAfter=6,
-        textColor=colors.HexColor("#1a3a5c"),
+        fontSize=12,
+        textColor=colors.white,
+        leading=16,
     )
     source_style = ParagraphStyle(
         "SourceStyle",
@@ -271,35 +310,51 @@ def run_compose(compose_json_path: Path, output_path: Path | None = None):
     doc = SimpleDocTemplate(
         str(output_path),
         pagesize=A4,
-        leftMargin=2 * cm,
-        rightMargin=2 * cm,
-        topMargin=2 * cm,
-        bottomMargin=2 * cm,
+        leftMargin=LEFT_MARGIN,
+        rightMargin=RIGHT_MARGIN,
+        topMargin=TOP_MARGIN,
+        bottomMargin=BOTTOM_MARGIN,
     )
+
+    footer_fn = _make_page_footer(font_name)
 
     story = []
     story.append(Paragraph(title, title_style))
     story.append(Paragraph(f"Ngày tạo: {date.today().isoformat()}", date_style))
 
     q_num = 0
-    total_pages = [0]
 
     for chapter_code in ordered_chapters:
         qs = by_chapter[chapter_code]
         chapter_name = chapter_names.get(chapter_code, chapter_code)
-        story.append(Paragraph(f"{chapter_code} — {chapter_name}", chapter_style))
-        story.append(Spacer(1, 4))
+
+        header_para = Paragraph(f"<b>{chapter_code} — {chapter_name}</b>", chapter_header_style)
+        header_table = Table([[header_para]], colWidths=[USABLE_WIDTH])
+        header_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#1a3a5c")),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ]))
+        story.append(Spacer(1, 8))
+        story.append(header_table)
+        story.append(Spacer(1, 6))
 
         for q in qs:
             q_num += 1
             story.append(Paragraph(f"Câu {q_num}.", q_num_style))
             story.append(Paragraph(q["source_label"], source_style))
-
-            safe_text = q["text"].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            safe_text = safe_text.replace("\n", "<br/>")
+            safe_text = (
+                q["text"]
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\n", "<br/>")
+            )
             story.append(Paragraph(safe_text, question_style))
 
-    doc.build(story)
+    doc.build(story, onFirstPage=footer_fn, onLaterPages=footer_fn)
 
     page_count = doc.page
     console.print(

@@ -23,65 +23,185 @@ console = Console()
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
+PROCESSED_DIR = ROOT / "question_bank" / "processed"
+
 
 @app.command()
-def classify(
-    pdf: str = typer.Argument(None, help="Path to a PDF in question_bank/raw/ (or just the filename)"),
-    all: bool = typer.Option(False, "--all", help="Process all unprocessed PDFs in question_bank/raw/"),
-    force: bool = typer.Option(False, "--force", help="Reprocess even if classify.json already exists"),
+def form(
+    host: str = typer.Option("127.0.0.1", "--host", help="Host to bind"),
+    port: int = typer.Option(5000, "--port", help="Port to listen on"),
+    no_browser: bool = typer.Option(False, "--no-browser", help="Do not open browser automatically"),
 ):
     """
-    Classify exam questions by chapter and difficulty. Stage 1-3 pipeline.
+    Start the web form server for manual exam classification.
     """
-    from scripts.classify import (
-        classify_exam,
-        load_config,
-        print_summary_table,
-        run_classify_all,
+    from scripts.form_server import run_server
+
+    run_server(host=host, port=port, open_browser=not no_browser)
+
+
+@app.command(name="gen-prompt")
+def gen_prompt(
+    exam_id: str = typer.Argument(..., help="Exam ID (folder name under question_bank/processed/)"),
+):
+    """
+    Export exam markdown for pasting into Claude.ai Project for classification.
+
+    Prints the de.md content to stdout and copies it to the clipboard if possible.
+    """
+    exam_dir = PROCESSED_DIR / exam_id
+    md_path = exam_dir / "de.md"
+
+    if not md_path.exists():
+        console.print(f"[red]de.md not found for {exam_id}.[/red]")
+        console.print(f"  Expected: {md_path}")
+        raise typer.Exit(1)
+
+    content = md_path.read_text(encoding="utf-8")
+
+    prompt = (
+        f"Classify all questions in this exam:\n\n{content}\n\n"
+        "Return JSON with key 'classifications' containing an array of classification objects. "
+        "Each object must have: phan (P1/P2/P3), stt (int), chuong (code), muc_do (B/H/VD). "
+        "For P2 items also include: y (a/b/c/d). "
+        "Return ONLY the JSON object. No markdown, no prose."
     )
-    from scripts.classify import RAW_DIR, PROCESSED_DIR
 
-    if all:
-        results = run_classify_all(force=force)
-        print_summary_table(results)
-        return
+    copied = False
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["xclip", "-selection", "clipboard"],
+            input=prompt.encode(),
+            capture_output=True,
+        )
+        if result.returncode == 0:
+            copied = True
+    except FileNotFoundError:
+        pass
 
-    if not pdf:
-        console.print("[red]Error: provide a PDF path or use --all[/red]")
-        raise typer.Exit(1)
-
-    pdf_path = Path(pdf)
-    if not pdf_path.is_absolute():
-        if (RAW_DIR / pdf_path.name).exists():
-            pdf_path = RAW_DIR / pdf_path.name
-        elif pdf_path.exists():
+    if not copied:
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["xsel", "--clipboard", "--input"],
+                input=prompt.encode(),
+                capture_output=True,
+            )
+            if result.returncode == 0:
+                copied = True
+        except FileNotFoundError:
             pass
-        else:
-            pdf_path = RAW_DIR / pdf_path.name
 
-    if not pdf_path.exists():
-        console.print(f"[red]PDF not found: {pdf_path}[/red]")
-        raise typer.Exit(1)
+    if not copied:
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["wl-copy"],
+                input=prompt.encode(),
+                capture_output=True,
+            )
+            if result.returncode == 0:
+                copied = True
+        except FileNotFoundError:
+            pass
 
-    result = classify_exam(pdf_path, force=force)
-    if result:
-        print_summary_table([result])
+    console.print(f"\n[bold cyan]── Prompt for {exam_id} ──[/bold cyan]")
+    console.print(prompt)
+    console.print(f"\n[bold cyan]────────────────────────[/bold cyan]")
+
+    if copied:
+        console.print("[green]✓ Đã copy vào clipboard.[/green]")
+    else:
+        console.print("[yellow]Clipboard không khả dụng — copy thủ công từ output trên.[/yellow]")
+
+    console.print(
+        f"\n[dim]Sau khi nhận JSON từ Claude, chạy:[/dim]\n"
+        f"  [bold]tutor import-json {exam_id}[/bold]"
+    )
 
 
-@app.command()
-def evaluate(
-    threshold: float = typer.Option(None, "--threshold", help="Minimum match_score to evaluate (default from config)"),
+@app.command(name="import-json")
+def import_json(
+    exam_id: str = typer.Argument(..., help="Exam ID (folder name under question_bank/processed/)"),
+    file: str = typer.Option(None, "--file", "-f", help="Path to JSON file (default: read from stdin)"),
 ):
     """
-    Quality-evaluate screen-passed exams using Sonnet.
+    Save classification JSON from Claude.ai into the processed folder.
+
+    Reads JSON from stdin (or --file) and saves it as classify.json,
+    then regenerates ma_tran_de.xlsx.
+
+    Usage:
+        tutor import-json de_001                # paste JSON, then Ctrl+D
+        tutor import-json de_001 --file out.json
     """
-    from scripts.evaluate import print_evaluate_summary, run_evaluate
+    import json
+    from datetime import datetime, timezone
 
-    results = run_evaluate(threshold=threshold)
-    print_evaluate_summary(results)
+    from scripts.classify import build_matrix_excel, load_config, compute_screen_score
 
-    if not results:
-        console.print("[dim]All eligible exams already evaluated. Use --force-classify to reprocess.[/dim]")
+    if file:
+        file_path = Path(file)
+        if not file_path.exists():
+            console.print(f"[red]File not found: {file_path}[/red]")
+            raise typer.Exit(1)
+        raw = file_path.read_text(encoding="utf-8")
+    else:
+        console.print("[dim]Paste JSON below, then press Ctrl+D (Linux/Mac) or Ctrl+Z Enter (Windows):[/dim]")
+        raw = sys.stdin.read()
+
+    raw = raw.strip()
+    if not raw:
+        console.print("[red]No input received.[/red]")
+        raise typer.Exit(1)
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        console.print(f"[red]Invalid JSON: {e}[/red]")
+        raise typer.Exit(1)
+
+    classifications = data.get("classifications")
+    if not isinstance(classifications, list):
+        console.print("[red]JSON must have a 'classifications' list.[/red]")
+        raise typer.Exit(1)
+
+    exam_dir = PROCESSED_DIR / exam_id
+    exam_dir.mkdir(parents=True, exist_ok=True)
+
+    config = load_config()
+    match_score, vd_count, screen_pass = compute_screen_score(classifications, config)
+
+    p1 = len([c for c in classifications if c["phan"] == "P1"])
+    p2 = len([c for c in classifications if c["phan"] == "P2"])
+    p3 = len([c for c in classifications if c["phan"] == "P3"])
+
+    muc_do_counts: dict[str, int] = {}
+    for c in classifications:
+        md = c.get("muc_do", "?")
+        muc_do_counts[md] = muc_do_counts.get(md, 0) + 1
+
+    output = {
+        "exam_id": exam_id,
+        "source_pdf": str(ROOT / "question_bank" / "raw" / f"{exam_id}.pdf"),
+        "ma_tran_match_score": match_score,
+        "vd_count": vd_count,
+        "section_counts": {"P1": p1, "P2_items": p2, "P3": p3},
+        "muc_do_counts": muc_do_counts,
+        "classifications": classifications,
+        "screen_pass": screen_pass,
+        "processed_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    classify_json_path = exam_dir / "classify.json"
+    classify_json_path.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
+    console.print(f"[green]✓ Đã lưu classify.json[/green] (match={match_score:.2f}, vd={vd_count}, pass={screen_pass})")
+
+    try:
+        build_matrix_excel(exam_id, classifications, exam_dir, config)
+    except Exception as e:
+        console.print(f"[yellow]Warning: could not build ma_tran_de.xlsx: {e}[/yellow]")
 
 
 @app.command()
@@ -144,24 +264,14 @@ def ocr(
     move: bool = typer.Option(False, "--move", help="Move originals to scanned/done/ after success"),
 ):
     """
-    OCR-annotate scanned exam PDFs using Google Cloud Vision.
+    OCR-annotate scanned exam PDFs using Tesseract.
 
     Reads from question_bank/scanned/, writes annotated PDFs to question_bank/raw/.
-    Requires GOOGLE_SERVICE_ACCOUNT_JSON and Cloud Vision API enabled.
+    Requires tesseract + vie language pack (sudo apt install tesseract-ocr tesseract-ocr-vie).
     """
     from scripts.ocr_annotate import run_annotate
 
     run_annotate(pdf_arg=pdf, force=force, move=move)
-
-
-@app.command(name="eval-accuracy")
-def eval_accuracy():
-    """
-    Compare classify output against eval/ground_truth.xlsx for accuracy metrics.
-    """
-    from scripts.eval_accuracy import run_eval_accuracy
-
-    run_eval_accuracy()
 
 
 if __name__ == "__main__":

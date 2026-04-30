@@ -7,7 +7,6 @@ name = "tutor-sinh"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
-    "anthropic>=0.40",
     "marker-pdf",
     "openpyxl",
     "gspread>=6.0",
@@ -30,5 +29,5 @@ dependencies = [
 tutor = "tutor:app"
 
 [tool.setuptools]
-py-modules = ["tutor"]
+py-modules = ["tutor", "app"]
 packages = ["scripts"]

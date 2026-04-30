@@ -30,5 +30,38 @@ P3  Short answer (numeric result)  — 6 questions
 - For P3: most are VD or H, rarely B
 - Boundary H vs VD for Di truyen chapters: if student must calculate a ratio or probability → VD; if student must identify/explain a mechanism → H
 
+## EXTENDED TAGS
+
+skill
+- Lowercase snake_case label for the concrete biology skill.
+- Must be more specific than chuong.
+- Examples: nhan_doi_adn, phien_ma_dich_ma, dot_bien_gen, dot_bien_nst, giam_phan, nguyen_phan, lai_mot_cap_tinh_trang, lai_hai_cap_tinh_trang, hoan_vi_gen, pha_he, xac_suat_di_truyen, di_truyen_quan_the_hardy_weinberg, luoi_thuc_an, chu_trinh_sinh_dia_hoa.
+- Use unknown only when no stable label fits.
+
+competency
+- recall: identify, name, recognize, remember.
+- understand: explain mechanism, compare concepts, infer simple relationship.
+- interpret: read graph, table, diagram, pedigree, food web, or result.
+- apply: apply concept to new biological situation without substantial calculation.
+- calculate: compute ratios, probabilities, map distance, Hardy-Weinberg values, or numeric answers.
+- experiment: reason about controls, variables, design, predictions, or conclusions.
+
+calculation_load
+- none: no numeric reasoning.
+- light: one short computation or obvious ratio.
+- medium: multi-step calculation, probability, cross, table counting, or formula use.
+- heavy: unusually long math, many cases, old-style genetic probability, or calculation burden above BoGD 2025 style.
+
+bo_gd_fit
+- high: consistent with BoGD 2025 style and reasoning burden.
+- medium: acceptable practice question but somewhat more calculation-heavy, unusual, or source-specific.
+- low: clearly harder, old-style math-heavy, olympiad-like, overly long, ambiguous, or not representative of BoGD-style evaluation.
+
+confidence
+- 0.90-1.00: clear label.
+- 0.70-0.89: mostly clear.
+- 0.50-0.69: plausible but uncertain.
+- <0.50: needs human review.
+
 ## OUTPUT FORMAT
 Return ONLY a JSON object. No prose, no markdown fences.

@@ -19,6 +19,9 @@ from openpyxl.styles import Font, PatternFill
 from rich.console import Console
 from rich.table import Table
 
+from scripts.classification_schema import summarize_classification_style, validate_classifications
+from scripts.source_profiles import detect_source_profile
+
 import os 
 import torch
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -282,6 +285,12 @@ def classify_exam(pdf_path: Path, force: bool = False) -> dict | None:
     classifications = result.get("classifications", [])
 
     config = load_config()
+    validation = validate_classifications(classifications, strict_new_fields=False)
+    if validation["errors"]:
+        console.print(f"  [red]Validation errors:[/red] {validation['errors'][:3]}")
+    if validation["warnings"]:
+        console.print(f"  [yellow]Validation warnings:[/yellow] {len(validation['warnings'])}")
+
     match_score, vd_count, screen_pass = compute_screen_score(classifications, config)
 
     p1_actual = len([c for c in classifications if c["phan"] == "P1"])
@@ -296,10 +305,13 @@ def classify_exam(pdf_path: Path, force: bool = False) -> dict | None:
     output = {
         "exam_id": exam_id,
         "source_pdf": str(pdf_path.relative_to(ROOT)),
+        "source_profile": detect_source_profile(exam_id),
         "ma_tran_match_score": match_score,
         "vd_count": vd_count,
         "section_counts": {"P1": p1_actual, "P2_items": p2_actual, "P3": p3_actual},
         "muc_do_counts": muc_do_counts,
+        "style_summary": summarize_classification_style(classifications),
+        "validation": validation,
         "classifications": classifications,
         "screen_pass": screen_pass,
         "processed_at": datetime.now(timezone.utc).isoformat(),

@@ -367,6 +367,17 @@ def serve_pdf(exam_id: str):
     return send_file(str(pdf_path), mimetype="application/pdf", as_attachment=False)
 
 
+@app.route("/pdf-data/<exam_id>")
+def serve_pdf_data(exam_id: str):
+    import base64
+    pdf_path = RAW_DIR / f"{exam_id}.pdf"
+    if not pdf_path.exists():
+        return {"error": "PDF not found"}, 404
+    with open(pdf_path, "rb") as f:
+        pdf_data = base64.b64encode(f.read()).decode("utf-8")
+    return {"data": f"data:application/pdf;base64,{pdf_data}"}
+
+
 @app.route("/pdf-info/<exam_id>")
 def serve_pdf_info(exam_id: str):
     pdf_path = RAW_DIR / f"{exam_id}.pdf"
@@ -401,6 +412,45 @@ def serve_pdf_page(exam_id: str, page: int):
         return f"Render error: {e}", 500
 
 
+@app.route("/exam-add", methods=["POST"])
+def add_exam():
+    exam_id = request.form.get("exam_id", "").strip()
+    if not exam_id:
+        flash("Exam ID required", "danger")
+        return redirect(url_for("index"))
+    db_path = ROOT / "tutor_sinh.db"
+    import sqlite3
+    conn = sqlite3.connect(db_path)
+    conn.execute("INSERT OR IGNORE INTO exams (id) VALUES (?)", (exam_id,))
+    conn.commit()
+    conn.close()
+    flash(f"Added exam: {exam_id}", "success")
+    return redirect(url_for("index"))
+
+
+@app.route("/exam-delete/<exam_id>")
+def delete_exam(exam_id: str):
+    db_path = ROOT / "tutor_sinh.db"
+    import sqlite3
+    conn = sqlite3.connect(db_path)
+    conn.execute("DELETE FROM questions WHERE exam_id=?", (exam_id,))
+    conn.execute("DELETE FROM exams WHERE id=?", (exam_id,))
+    conn.commit()
+    conn.close()
+    flash(f"Deleted exam: {exam_id}", "success")
+    return redirect(url_for("index"))
+
+
+@app.route("/export-json/<exam_id>")
+def export_json(exam_id: str):
+    classify_path = PROCESSED_DIR / exam_id / "classify.json"
+    if not classify_path.exists():
+        return {"error": "No classify.json found"}, 404
+    with open(classify_path, encoding="utf-8") as f:
+        data = json.load(f)
+    return data
+
+
 def run_server(host: str = "127.0.0.1", port: int = 5000, open_browser: bool = True):
     if open_browser:
         Timer(1.2, lambda: webbrowser.open(f"http://{host}:{port}")).start()
@@ -423,7 +473,10 @@ INDEX_TEMPLATE = f"""<!DOCTYPE html>
 <div class="container py-4" style="max-width:900px">
   <div class="d-flex justify-content-between align-items-center mb-3">
     <h5 class="mb-0">📚 Ngân hàng đề thi</h5>
-    <span class="text-muted small">{{{{ done }}}}/{{{{ total }}}} hoàn thành · {{{{ partial }}}} đang làm</span>
+    <div class="d-flex align-items-center gap-2">
+      <button class="btn btn-sm btn-outline-primary" onclick="showAddExam()">+ Thêm đề</button>
+      <span class="text-muted small">{{{{ done }}}}/{{{{ total }}}} hoàn thành · {{{{ partial }}}} đang làm</span>
+    </div>
   </div>
 
   {{% with messages = get_flashed_messages(with_categories=true) %}}
@@ -461,7 +514,9 @@ INDEX_TEMPLATE = f"""<!DOCTYPE html>
         </a>
         {{% if e.status != 'notdone' %}}
         <a href="/review/{{{{ e.exam_id }}}}" class="btn btn-sm btn-outline-info">Review</a>
+        <button class="btn btn-sm btn-outline-secondary" onclick="showExport('{{{{ e.exam_id }}}}')">Export</button>
         {{% endif %}}
+        <button class="btn btn-sm btn-outline-danger" onclick="confirmDelete('{{{{ e.exam_id }}}}')">✕</button>
         <button class="btn btn-sm btn-outline-secondary" onclick="showImport('{{{{ e.exam_id }}}}')">Import JSON</button>
       </td>
     </tr>
@@ -473,6 +528,29 @@ INDEX_TEMPLATE = f"""<!DOCTYPE html>
     {{% endif %}}
     </tbody>
   </table>
+  </div>
+</div>
+
+<!-- Add Exam Modal -->
+<div class="modal fade" id="addExamModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h6 class="modal-title">Thêm đề thi mới</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="/exam-add">
+      <div class="modal-body">
+        <div class="mb-2">
+          <label class="form-label">Exam ID</label>
+          <input type="text" name="exam_id" class="form-control" placeholder="VD: TEST_001" required>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Huỷ</button>
+        <button type="submit" class="btn btn-primary btn-sm">Thêm</button>
+      </div>
+      </form>
+    </div>
   </div>
 </div>
 
@@ -498,6 +576,24 @@ INDEX_TEMPLATE = f"""<!DOCTYPE html>
   </div></div>
 </div>
 
+<!-- Export JSON Modal -->
+<div class="modal fade" id="exportModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+  <div class="modal-content">
+    <div class="modal-header py-2">
+      <h6 class="modal-title mb-0">Export JSON — <span id="exp-id" class="font-monospace"></span></h6>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    </div>
+    <div class="modal-body pb-2">
+      <textarea id="exp-text" class="form-control font-monospace" rows="15" readonly></textarea>
+    </div>
+    <div class="modal-footer py-2">
+      <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Đóng</button>
+      <button class="btn btn-primary btn-sm" onclick="document.getElementById('exp-text').select();document.execCommand('copy')">Copy</button>
+    </div>
+  </div></div>
+</div>
+
 <script src="{_BSJ}"></script>
 <script>
 function showImport(id) {{
@@ -505,6 +601,21 @@ function showImport(id) {{
   document.getElementById('imp-form').action = '/import/' + id;
   new bootstrap.Modal(document.getElementById('importModal')).show();
   setTimeout(() => document.querySelector('#importModal textarea').focus(), 400);
+}}
+function showAddExam() {{
+  new bootstrap.Modal(document.getElementById('addExamModal')).show();
+}}
+function showExport(id) {{
+  document.getElementById('exp-id').textContent = id;
+  fetch('/export-json/' + id).then(r => r.json()).then(d => {{
+    document.getElementById('exp-text').value = JSON.stringify(d, null, 2);
+  }});
+  new bootstrap.Modal(document.getElementById('exportModal')).show();
+}}
+function confirmDelete(id) {{
+  if (confirm('Xóa đề ' + id + '? (file gốc giữ nguyên)')) {{
+    window.location.href = '/exam-delete/' + id;
+  }}
 }}
 </script>
 </body></html>"""
@@ -838,7 +949,13 @@ async function initPdfViewer() {{
   try {{
     pdfjsLib.GlobalWorkerOptions.workerSrc =
       'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
-    pdfDoc = await pdfjsLib.getDocument('/pdf/' + EXAM_ID).promise;
+    const resp = await fetch('/pdf-data/' + EXAM_ID);
+    const json = await resp.json();
+    const base64 = json.data.replace('data:application/pdf;base64,', '');
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    pdfDoc = await pdfjsLib.getDocument({{data: bytes}}).promise;
     pdfTotal = pdfDoc.numPages;
     await fitWidth(true);
   }} catch(e) {{ console.error('PDF.js error', e); }}

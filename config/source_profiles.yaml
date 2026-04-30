@@ -1,0 +1,57 @@
+sources:
+  BoGD:
+    prefixes: ["BoGD_MH_2025", "BoGD_CT_2025"]
+    official_anchor: true
+    reliability: high
+    reliability_weight: 1.0
+    expected_bias_points: 0.0
+    notes: "Official Ministry reference tests. Primary calibration anchors."
+  Moon:
+    prefixes: ["Moon_", "Moon"]
+    official_anchor: false
+    reliability: medium_high
+    reliability_weight: 0.8
+    expected_bias_points: -0.2
+    notes: "Matrix-following source, but Part 3 may be easier."
+  So:
+    prefixes: ["So_"]
+    official_anchor: false
+    reliability: medium
+    reliability_weight: 0.6
+    expected_bias_points: -0.5
+    notes: "City/province department tests. Often harder than BoGD."
+  THPT:
+    prefixes: ["THPT_"]
+    official_anchor: false
+    reliability: medium
+    reliability_weight: 0.55
+    expected_bias_points: -0.7
+    notes: "Top high-school tests. Often harder and somewhat math-heavy."
+  PKN:
+    prefixes: ["PKN_"]
+    official_anchor: false
+    reliability: medium_low
+    reliability_weight: 0.45
+    expected_bias_points: -0.4
+    notes: "Phan Khac Nghe tests. Known teacher, variable quality."
+  TCK:
+    prefixes: ["TCK_"]
+    official_anchor: false
+    reliability: medium_low
+    reliability_weight: 0.45
+    expected_bias_points: -0.8
+    notes: "Newer engaging questions, sometimes too old-style math-heavy."
+  VIP9:
+    prefixes: ["VIP_9+"]
+    official_anchor: false
+    reliability: low
+    reliability_weight: 0.35
+    expected_bias_points: -1.0
+    notes: "Hard exam collection from mixed sources."
+  Unknown:
+    prefixes: []
+    official_anchor: false
+    reliability: low
+    reliability_weight: 0.35
+    expected_bias_points: -0.5
+    notes: "Fallback for unidentified sources."
